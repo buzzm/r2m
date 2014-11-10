@@ -1,0 +1,80 @@
+The RDBMS
+
+Three tables:
+contact  -- the main one
+phones   -- links to contact via did
+devices  -- links to contact via did
+
+
+==================== CONTACT ========================
+mydb=# hmydb=# select * from contact;
+ did | type |  hiredate  | camelcase | value  | age |   flt   |    amt1    |      amt2      |                              fname                               |                              lname                               
+-----+------+------------+-----------+--------+-----+---------+------------+----------------+------------------------------------------------------------------+------------------------------------------------------------------
+ g10 |      | 2012-06-06 |           |   3333 |     |         |            |                | Matt                                                             | Kalan                                                           
+ g11 |      | 2014-07-01 |           |        | 113 |         |            |                | Eduoard                                                          | SS                                                              
+ g9  |      |            |           | 444.44 |     | 123.456 | 7373543.34 | 88387737353.34 | Buzz                                                             | Moschetti                                                       
+(3 rows)
+
+mydb=# \d contact
+            Table "public.contact"
+  Column   |         Type          | Modifiers 
+-----------+-----------------------+-----------
+ did       | character varying(8)  | 
+ type      | character varying(32) | 
+ hiredate  | date                  | 
+ camelcase | character(64)         | 
+ value     | numeric               | 
+ age       | integer               | 
+ flt       | double precision      | 
+ amt1      | numeric(9,2)          | 
+ amt2      | numeric(14,2)         | 
+ fname     | character(64)         | 
+ lname     | character(64)         | 
+
+
+
+
+
+==================== PHONES ========================
+mydb=# select * from phones;
+ did | type |     number     | rings 
+-----+------+----------------+-------
+ g9  | home | 1-900-555-1212 |     2
+ g9  | home | 1-777-999-1212 |     2
+ g9  | work | 1-800-SQL-HARD |     3
+ g10 | home | 1-666-444-3333 |     2
+ g10 | home | 1-999-444-3333 |     7
+ g10 | work | 1-999-444-9999 |     1
+(6 rows)
+
+[NOTE: g11 has no phones!]
+
+mydb=# \d phones
+         Table "public.phones"
+ Column |       Type        | Modifiers 
+--------+-------------------+-----------
+ did    | character varying | 
+ type   | character varying | 
+ number | character varying | 
+ rings  | integer           | 
+
+
+
+
+==================== DEVICES ========================
+mydb=# select * from devices;
+ did |  type   |       ip       
+-----+---------+----------------
+ g9  | tablet  | 23:e4:a2:30:12
+ g9  | tablet  | 13:e4:a2:30:12
+ g10 | smartTV | 93:e4:a2:30:12
+(3 rows)
+
+mydb=# \d devices;
+           Table "public.devices"
+ Column |         Type          | Modifiers 
+--------+-----------------------+-----------
+ did    | character varying(8)  | 
+ type   | character varying(16) | 
+ ip     | character varying(25) | 
+

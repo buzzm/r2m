@@ -1,0 +1,162 @@
+rtm.1.pl
+> db.contacts.find().pretty();
+{
+	"_id" : ObjectId("543c200c9f43b857df43a5f1"),
+	"firstname" : "Matt",
+	"lastName" : "Kalan",
+	"hdate" : ISODate("2012-06-06T04:00:00Z")
+}
+{
+	"_id" : ObjectId("543c200c9f43b857df43a5f2"),
+	"firstname" : "Eduoard",
+	"lastName" : "SS",
+	"hdate" : ISODate("2014-07-01T04:00:00Z")
+}
+{
+	"_id" : ObjectId("543c200c9f43b857df43a5f3"),
+	"firstname" : "Buzz",
+	"amt2" : 88387737353.34,
+	"lastName" : "Moschetti",
+	"amt1" : 7373543.34
+}
+
+
+
+rtm.2.pl
+> db.contacts.find().pretty();
+{
+	"_id" : ObjectId("543c203d9f43b857e33a7551"),
+	"firstname" : "Matt",
+	"upperfirstname" : "MATT",
+	"lastname" : "Kalan",
+	"hdate" : ISODate("2012-06-06T04:00:00Z")
+}
+{
+	"_id" : ObjectId("543c203d9f43b857e33a7552"),
+	"firstname" : "Eduoard",
+	"upperfirstname" : "EDUOARD",
+	"lastname" : "SS",
+	"hdate" : ISODate("2014-07-01T04:00:00Z")
+}
+{
+	"_id" : ObjectId("543c203d9f43b857e33a7553"),
+	"firstname" : "Buzz",
+	"upperfirstname" : "BUZZ",
+	"amt2" : 88387737353.34,
+	"lastname" : "Moschetti",
+	"amt1" : 7373543.34
+}
+
+
+
+rtm.3.pl
+> db.contacts.find().pretty();
+{
+	"_id" : ObjectId("543c20559f43b857e527d691"),
+	"name" : {
+	       "first" : "Matt",
+       	       "last" : "Kalan"
+	       }
+}
+{
+	"_id" : ObjectId("543c20559f43b857e527d692"),
+	"name" : {
+	       "first" : "Eduoard",
+       	       "last" : "SS"
+	       }
+}
+{
+	"_id" : ObjectId("543c20559f43b857e527d693"),
+	"name" : {
+	       "first" : "Buzz",
+       	       "last" : "Moschetti"
+	       }
+}
+
+
+rtm.4.pl
+> db.contacts.find().pretty();
+{
+	"_id" : ObjectId("543c207c9f43b857e9411c41"),
+	"fname" : "Matt",
+	"phones" : [
+		 {
+			"rings" : NumberLong(2),
+			"number" : "+1 666-444-3333"
+	  	   },
+		{
+			"rings" : NumberLong(7),
+			  "number" : "+1 999-444-3333"
+    	        },
+		{
+			"rings" : NumberLong(1),
+			"number" : "+1 999-444-9999"
+		}
+	]
+}
+{ "_id" : ObjectId("543c207c9f43b857e9411c42"), "fname" : "Eduoard" }
+{
+	"_id" : ObjectId("543c207c9f43b857e9411c43"),
+	"fname" : "Buzz",
+	"phones" : [
+		 {
+			"rings" : NumberLong(2),
+			"number" : "+1 900-555-1212"
+		},
+		{
+			"rings" : NumberLong(2),
+			"number" : "+1 777-999-1212"
+		},
+		{
+			"rings" : NumberLong(3),
+			"number" : "+1 800-SQL-HARD"
+		}
+	]
+}
+
+
+rtm.5.pl
+[ Showing just Matt Kalan; it got kinda long and the point is the mix of 
+  phones and devices tables into a single field "things"
+] 
+
+{
+  "fname": "Matt",
+  "things": [
+    {
+      "data": {
+        "type": "home",
+        "number": "1-666-444-3333",
+        "rings": NumberLong(2)
+      },
+      "origin": "phones"
+    },
+    {
+      "data": {
+        "type": "home",
+        "number": "1-999-444-3333",
+        "rings": NumberLong(7)
+      },
+      "origin": "phones"
+    },
+    {
+      "data": {
+        "type": "work",
+        "number": "1-999-444-9999",
+        "rings": NumberLong(1)
+      },
+      "origin": "phones"
+    },
+    {
+      "data": {
+        "type": "smartTV",
+        "ip": "93:e4:a2:30:12"
+      },
+      "origin": "devices"
+    }
+  ],
+  "_id": ObjectId(543c21419f43b857f17ccda1)
+}
+
+
+
