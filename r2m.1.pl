@@ -11,18 +11,18 @@ my $qq = {
 
     rdbs => {
 	#  Each DB connection gets a handle name; D1 is just fine.
-	#  Create as many as need.
+	#  Create as many as needed.
 	#  Note: R2M does NOT join directly across DBs so have no fear;
-	#  put as many as need here:
+	#  put as many as needed here:
 	D1 => {
 	    #  Connect using DBI params!
 	    conn => "DBI:Pg:dbname=mydb;host=localhost",
-
-	    #  For debugging purposes; not used by DBI
-	    alias => "a nice PG DB",
 	    user => "postgres",
 	    pw => "postgres",
-	    args => { AutoCommit => 0 }
+	    args => { AutoCommit => 0 },
+
+	    #  For R2M debugging purposes; not used by DBI
+	    alias => "a nice PG DB"
 	}
     },
 
