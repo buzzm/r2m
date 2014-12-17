@@ -1,3 +1,5 @@
+#   See pod docs below __END__
+
 package R2M;
 
 use DBI;
@@ -483,3 +485,29 @@ sub run {
 
 
 1;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+R2M - DBD/DBI based relational to MongoDB bulk transfer framework
+
+=head1 SYNOPSIS
+
+ (look at r2m.n.pl for guidance)
+
+
+=head1 AUTHORS and MAINTAINERS
+
+Buzz Moschetti F<E<lt>buzz[at]mongodb.orgE<gt>> (sort of)
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2014 Buzz Moschetti
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut
