@@ -339,12 +339,12 @@ sub processCollection {
 
 		@partials = $this->processCollection(0, $coll, $link->[1], $subw, $depth + 1);	    
 		if($#partials != -1) {
-		    print "** collected " , $#partials + 1 , " from $subw\n";
+#		    print "** collected " , $#partials + 1 , " from $subw\n";
 		    push(@subaccums, @partials);
-		    print "** new subaccums is " , $#subaccums + 1 , "\n";
+#		    print "** new subaccums is " , $#subaccums + 1 , "\n";
 		} else {
-		    print "** collected NONE from $subw\n";
-		    print "** accums is " , $#subaccums + 1, "\n";
+#		    print "** collected NONE from $subw\n";
+#		    print "** accums is " , $#subaccums + 1, "\n";
 		}
 	    }
 
@@ -356,7 +356,7 @@ sub processCollection {
 		#} elsif($lt eq "1:1") {
 		#    $doc->{$k} = $allAccums[0]; # first and only doc!
 		#}
-		print "setting " , $#subaccums + 1 , " items into $k\n";
+#		print "setting " , $#subaccums + 1 , " items into $k\n";
 		$doc->{$k} = \@subaccums;
 	    }
 	}
@@ -379,7 +379,7 @@ sub processCollection {
 		push(@accums, $doc);
 	    }
 	} else {
-	    print "NO flds found for xfer; skip\n";
+#	    print "NO flds found for xfer; skip\n";
 	}
     }
 

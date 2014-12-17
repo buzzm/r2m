@@ -28,7 +28,7 @@ my $qq = {
 
     tables => {
 	# Each table is named and linked to the source DB where it 
-	# can be found.  "contact" is the table name and it can be 
+	# can be found.  "contact" is the table name and it can be found
 	# in database D1 described above:
 	contact => {
 	    db => "D1"
