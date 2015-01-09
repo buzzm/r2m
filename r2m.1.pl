@@ -108,13 +108,14 @@ my $qq = {
         # ALSO:  fixed length fields (e.g. char(64)) are rtrimmed!
 	# 
 	flds => {
-	    firstname => "FNAME",
-	    blob => "BLOB",
-	    lastName => "LNAME",
-	    hdate => "HIREDATE",
-	    amt1 => "AMT1",
-	    amt2 => "AMT2"
-
+	    firstname => "FNAME"
+		, blob => "BLOB"
+		, lastName => "LNAME"
+		, hdate => "HIREDATE"
+		, amt1 => "AMT1"
+		, amt2 => "AMT2"
+		, lastevent => "lastevent"
+		, localevent => "localevent"
 	}
       }
     }

@@ -14,12 +14,13 @@ sub new {
     # A hash is used as the "body" of the object:
     my $this = {};
 
-    $this->{localTZ} = DateTime::TimeZone->new( name => 'local' );
+    $this->{UTZ} = DateTime::TimeZone->new( name => '+0000' );
 
     bless $this, $class;
 
     return $this;
 }
+
 
 sub groom {
     my($this) = shift;      
@@ -42,7 +43,79 @@ sub groom {
 	    year      => $year,
 	    month     => $month,
 	    day       => $day,
-	    time_zone => $this->{localTZ}  # CAREFUL!!!
+	    time_zone => $this->{UTZ} 
+	    );
+
+
+    } elsif($stype == DBI::SQL_TYPE_TIMESTAMP_WITH_TIMEZONE) {
+	#   2015-01-09 11:16:10.676625-05
+	#
+	#  But:  This might be Postgres specific...
+	my ($year
+	    , $z
+	    , $month
+	    , $z
+	    , $day
+	    , $z
+	    , $hour
+	    , $z
+	    , $min
+	    , $z
+	    , $sec
+	    , $z
+	    , $Ms
+	    , $tz
+	    ) = unpack("A4A1A2A1A2A1A2A1A2A1A2A1A6A3", $rawval);
+	#               y   m   d   h   m   s   Mstz
+
+	#  Ms is microseconds; must multiply by 1000 to get nanos:
+	$Ms *= 1000;
+
+	#  tz is [+-]nn, e.g. -05
+	$tz .= "00";  # now it is -0500, which is valid.
+
+	$newval = DateTime->new(
+	    year      => $year,
+	    month     => $month,
+	    day       => $day,
+	    hour      => $hour,
+	    minute    => $min,
+	    second    => $sec,
+	    nanosecond=> $Ms,
+	    time_zone => $tz  # TBD  examine...
+	    );
+
+
+    } elsif($stype == DBI::SQL_TIMESTAMP) {
+	#   2015-01-09 11:15:39.619662
+	my ($year
+	    , $z
+	    , $month
+	    , $z
+	    , $day
+	    , $z
+	    , $hour
+	    , $z
+	    , $min
+	    , $z
+	    , $sec
+	    , $z
+	    , $Ms
+	    ) = unpack("A4A1A2A1A2A1A2A1A2A1A2A1A6", $rawval);
+	#               y   m   d   h   m   s   Ms
+
+	#  Ms is microseconds; must multiply by 1000 to get nanos:
+	$Ms *= 1000;
+	
+	$newval = DateTime->new(
+	    year      => $year,
+	    month     => $month,
+	    day       => $day,
+	    hour      => $hour,
+	    minute    => $min,
+	    second    => $sec,
+	    nanosecond=> $Ms,
+	    time_zone => $this->{UTZ}
 	    );
 
 
@@ -624,7 +697,6 @@ sub emit {
 	if($ov =~ /^[+-]?\d+(\.\d+)?$/) {
 	    $fh->print("$ov");
 	} else {
-	    # Should be a "better" grooming here but...
 	    $ov =~ s/\"/\\\"/g;
 	    $fh->print("\"$ov\"");
 	}
@@ -634,7 +706,21 @@ sub emit {
 	walkList($fh,$ov,$depth+1);
 
     } elsif($tx eq "DateTime") {
-	$fh->print("{\"\$date\":\"${ov}.000Z\" }");
+	#$fh->print("{\"\$date\":\"${ov}.000Z\" }");
+
+	print "ov->tx: ", $ov->time_zone(), "\n";
+
+	my $zz = sprintf("%04D-%02d-%02dT%02d:%02d:%02d.%03dZ",
+			 $ov->year(),
+			 $ov->month(),
+			 $ov->day(),
+			 $ov->hour(),
+			 $ov->minute(),
+			 $ov->second(),
+			 $ov->millisecond()
+	    );
+
+	$fh->print("{\"\$date\":\"${zz}\" }");
 
     } elsif($tx eq "SCALAR") {
 	# Deref scalar and tell encode NOT to use \n (2nd arg is EOL char):
