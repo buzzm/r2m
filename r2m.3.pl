@@ -1,11 +1,9 @@
 use R2M;
 
 my $qq = {
-    mongodb => {
-	host => "localhost",
-	port => 27017,
-	db => "r2m"
-    },
+    # Swap emitter and XXemitter for different outputs:
+    emitter => new R2M::JSON({ basedir => "/tmp" }),
+    XXemitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
 
     rdbs => {
 	D1 => {
@@ -38,16 +36,34 @@ my $qq = {
 	    # input "colsrc".
 	    #
             # Here, we construct a field "name" that is a nested structure
-	    # of two fields from the row.  Powerful!
+	    # of two fields from the row.  
+	    # Be careful to ensure you're not setting nulls and things.
+	    # When you supply the func, it is entirely up to you to control
+	    # what is going in!  To NOT store the item, return undef.
+	    #
+            # Powerful!
 	    name => [ "fld", {
 #		colsrc => ["*"],
 #		colsrc => ["FNAME", "LNAME"],
 		f => sub {
 		    my($ctx,$vals) = @_;
-		    my $fn = $vals->{"FNAME"}; $fn =~ s/\s+$//;
-		    my $ln = $vals->{"LNAME"}; $ln =~ s/\s+$//;
 
-		    return { first => $fn, last => $ln };
+		    my $nameStruct = {};
+
+		    my $fn = $vals->{"FNAME"}; 
+		    $fn =~ s/\s+$//;
+		    if($fn ne "") {
+			$nameStruct->{first} = $fn;
+		    }
+
+		    my $ln = $vals->{"LNAME"}; 
+		    $ln =~ s/\s+$//;
+		    if($ln ne "") {
+			$nameStruct->{last} = $ln;
+		    }
+
+		    # Was anything set?
+		    return scalar keys %{$nameStruct} > 0 ? $nameStruct : undef;
 		}
 		}]
 	}

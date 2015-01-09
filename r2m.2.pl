@@ -2,11 +2,9 @@ use R2M;
 use Data::Dumper;
 
 my $qq = {
-    mongodb => {
-	host => "localhost",
-	port => 27017,
-	db => "r2m"
-    },
+    # Swap emitter and XXemitter for different outputs:
+    emitter => new R2M::JSON({ basedir => "/tmp" }),
+    XXemitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
 
     rdbs => {
 	D1 => {
@@ -45,7 +43,9 @@ my $qq = {
 	    # default processing (i.e. rtrim) is performed on the field.  
 	    # Instead, you get to manipulate the value any way you wish 
 	    # and return the desired object to be set into mongoDB.  
-	    # The processing function takes two args: a hashref context 
+	    # Beware of setting undefs and empty strings
+	    #
+            # The processing function takes two args: a hashref context 
 	    # (more on this later) and a value, one of:
 	    # 1.  A scalar value if "colsrc" is a single column name
 	    # 2.  A hashref containing the values of the columns named in
@@ -66,6 +66,7 @@ my $qq = {
 	    # Any perl function and expression can be used here to do 
 	    # whatever you need: boundary checking, etc.  This is the single
 	    # value example so $val is the raw value of column FNAME.
+	    #
 	    upperfirstname => [ "fld", {
 		colsrc => "FNAME",
 		f => sub {

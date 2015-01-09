@@ -2,12 +2,63 @@ use R2M;
 
 my $qq = {
     
-    #  Basic mongoDB connection stuff:
-    mongodb => {
-	host => "localhost",
-	port => 27017,
-	db => "r2m"
-    },
+    #  Emitter is either 
+    #    emitter => new R2M::MongoDB({ db => "r2m"})
+    #  or
+    #    emitter => new R2M::JSON({ basedir =>"/tmp" })
+    #
+    #  Use R2M::MongoDB to ETL directly from source DBI to MongoDB.
+    #  If you use R2M::MongoDB, you need to have the MongoDB perl driver.
+    #  Optional params in <angle brackets> with defaults shown unless (none)
+    #    emitter => new R2M::MongoDB({
+    #      db => "r2m"          NOT optional
+    #      <host => "localhost">,
+    #      <port => 27017>
+    #      <username => (none)>
+    #      <password => (none)>
+    #      })
+    #
+    #  Alternatively, if you have very specific client connection settings,
+    #  use the client field to identify a MongoDB::MongoClient() object that
+    #  you create yourself:
+    #    my $mc = MongoDB::MongoClient->new(various exotic args);
+    #    emitter => new R2M::MongoDB({
+    #      db => "r2m"          NOT optional
+    #      client => $mc
+    #  Presence of the client field supercedes all other args (except db).
+    #  See https://metacpan.org/pod/MongoDB::MongoClient#ATTRIBUTES for an
+    #  example of some of those exotic args.
+    #
+    #
+    #  
+    #  Use R2M::JSON to extract from source DBI to JSON files.
+    #  If you use R2M::JSON, you do NOT need the MongoDB perl driver installed
+    #  because all the MongoDB-specific bits are conditionally loaded at runtime.
+    #  No other non-standard dependencies exist so you can use R2M "anywhere."
+    #  You only need to ensure that your choice of DBD/DBI modules can be found.
+    #  R2M::JSON will emit each collection in the spec into the basedir as
+    #      $basedir/collectionname.json
+    #  The JSON is CR-delimited (non-pretty) and will contain MongoDB type
+    #  metadata conventions, e.g. Dates will be emitted thusly:
+    #      { "myDate": {"$date","2014-02-02T00:00:00.000Z"} }
+    #  
+    #
+    #  TBD:
+    #  Roll your own:  emitter needs to create a class that supports two
+    #  methods:
+    #    collObject getColl(String collectionName).
+    #    void close();
+    #  The collObject in turn must support one method:  insert(hashRef)
+    #
+        emitter => new R2M::MongoDB({
+          host =>"localhost",
+          port => 27017,
+          db => "r2m"}),
+
+    #  We can "hide" the other emitter here by giving it a name that is
+    #  not recognized by R2M.  Switch between this emitter (JSON) and
+    #  and the MongoDB emitter for experimentation.
+	XXemitter => new R2M::JSON({ basedir =>"/tmp" }),
 
     rdbs => {
 	#  Each DB connection gets a handle name; D1 is just fine.
@@ -58,10 +109,12 @@ my $qq = {
 	# 
 	flds => {
 	    firstname => "FNAME",
+	    blob => "BLOB",
 	    lastName => "LNAME",
 	    hdate => "HIREDATE",
 	    amt1 => "AMT1",
 	    amt2 => "AMT2"
+
 	}
       }
     }

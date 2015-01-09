@@ -4,11 +4,9 @@ use Data::Dumper;
 
 
 my $qq = {
-    mongodb => {
-	host => "localhost",
-	port => 27017,
-	db => "r2m"
-    },
+    # Swap emitter and XXemitter for different outputs:
+    emitter => new R2M::JSON({ basedir => "/tmp" }),
+    XXemitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
 
     rdbs => {
 	D1 => {

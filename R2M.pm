@@ -1,9 +1,10 @@
 #   See pod docs below __END__
 
+
 package R2M;
 
 use DBI;
-use MongoDB;
+use DateTime;
 
 use Data::Dumper;  # for debugging
 
@@ -32,6 +33,7 @@ sub groom {
 
     my $newval = $rawval;
 
+
     if($stype == DBI::SQL_TYPE_DATE) {
 	#   YYYY-MM-DD
 	my ($year, $z, $month, $z, $day) = unpack("A4A1A2A1A2", $rawval);
@@ -40,12 +42,8 @@ sub groom {
 	    year      => $year,
 	    month     => $month,
 	    day       => $day,
-	    time_zone => $this->{localTZ}
+	    time_zone => $this->{localTZ}  # CAREFUL!!!
 	    );
-#      hour      => 1,
-#      minute    => 30,
-#      second    => 0,
-#      time_zone => 'America/Chicago',
 
 
     } elsif($stype == DBI::SQL_CHAR
@@ -68,7 +66,17 @@ sub groom {
 	#
 	#  Thus, it's NumberLong() everywhere.   Rats.
 	#
-	$newval = $rawval + 0; #?!?
+
+	#  Very very weird interaction if LATER ON you take a scalar ref for
+	#  BLOB data and rawval has had the +0 trick applied to it.
+	#  This works:
+	#    	$newval = $rawval;
+	#    	$newval += 0;
+	#  This does NOT work (it leads to the "type (ref) unhandled" error:
+	#    	$newval = $rawval + 0;
+	#  
+	$newval = $rawval;
+	$newval += 0;
 
     } elsif($stype == DBI::SQL_DECIMAL
 	    || $stype == DBI::SQL_NUMERIC
@@ -79,7 +87,16 @@ sub groom {
 	    || $stype == DBI::SQL_REAL
 	    || $stype == DBI::SQL_DOUBLE
 	) {
-	$newval = $rawval + 0; #?!?
+	$newval = $rawval;
+	$newval += 0.0; # see above...
+
+
+    } elsif($stype == DBI::SQL_LONGVARBINARY
+	    || $stype == DBI::SQL_VARBINARY
+	    || $stype == DBI::SQL_BINARY
+	) {
+
+	$newval = \$rawval;
     }
 
     return $newval;
@@ -405,18 +422,14 @@ sub run {
     $this->{startTime} = time;  # Ha!  Seconds since epoch (NOT millis)
     $this->{global} = {}; 
 
-    #  mongo!
-    my $h  = $spec->{mongodb}->{host};
-    my $p  = $spec->{mongodb}->{port};
-    my $db = $spec->{mongodb}->{db};
 
-    $this->{mc} = MongoDB::MongoClient->new(host => $h, port => $p);
-    $this->{mdb} = $this->{mc}->get_database($db);
+    #  emitter!
+    $this->{emitter} = $spec->{emitter};
+
 
     # rdbs!
     my $rdbs = $spec->{rdbs};
     for $k (keys %{$rdbs}) {
-	print $k, "\n";
 	my $item = $rdbs->{$k};
 
 	$this->{dbs}->{$k}->{dbh} = DBI->connect(
@@ -425,9 +438,9 @@ sub run {
 	    $item->{pw},
 	    $item->{args});
 	$this->{dbs}->{$k}->{alias} = $item->{alias};
-
-	print "$item->{alias} connected as $k\n";
+#	print "$item->{alias} connected as $k\n";
     }
+
 
     # tables !
     my $tbls = $spec->{tables};
@@ -465,23 +478,256 @@ sub run {
     # load 'em up!
     my $colls = $spec->{collections};
     for $k (keys %{$colls}) {
-	my $coll = $this->{mdb}->get_collection( $k );
+
+	my $coll = $this->{emitter}->getColl($k);
+
 	$this->processCollection(1, $coll, $colls->{$k}, undef, 0);
-	# mongodb insert[$k]($doc);
     }
 
-    #  shut 'em down...
+    #  Shut 'em down...
+    #  emitter
+    $this->{emitter}->close();
+
     my $rdbs = $spec->{rdbs};
     for $k (keys %{$rdbs}) {
-
 	my $item = $rdbs->{$k};
-
 	my $dbh = $this->{dbs}->{$k}->{dbh};
-
 	$dbh->disconnect();
     }
 
 }
+
+
+
+
+
+
+package R2M::MongoDB;
+use Carp;
+
+# new R2M::MongoDB({ options });
+sub new {
+    require MongoDB;
+
+    my($class) = shift;  
+    
+    # A hash is used as the "body" of the object:
+    my $this = {};
+    bless $this, $class;
+
+    my $args = shift;
+
+    if(!defined $args->{db}) {
+	croak "db => targetDB must be defined in R2M::MongoDB->new options";
+    }
+
+    if(defined $args->{client}) {
+	$this->{mc} = $args->{client};
+    } else {
+	# Defaults:
+	my $a2 = {
+	    host => "localhost",
+	    port => 27017
+	};
+	for $fld (qw/host port username password/) {
+	    if(defined $args->{$fld}) {
+		$a2->{$fld} = $args->{$fld};
+	    }
+	}
+	$this->{mc} = MongoDB::MongoClient->new($a2);
+    }
+
+    $this->{mdb} = $this->{mc}->get_database($args->{db});
+
+    return $this;
+}
+
+sub close {
+    my($this) = shift;      
+
+    #  Per the MongoDB::MongoClient docs:
+    #    There is no way to explicitly disconnect from the database. 
+    #    However, the connection will automatically be closed and cleaned up
+    #    when no references to the MongoDB::MongoClient object exist, which
+    #    occurs when $client goes out of scope
+    #    (or earlier if you undefine it with undef
+
+    # So... undef it!  
+    undef $this->{mc};
+}
+
+# getColl(collName)
+sub getColl {
+    my($this) = shift;      
+    my($collName) = @_;
+
+    # This will return an object that already has the method
+    # insert(hashref)
+    return $this->{mdb}->get_collection( $collName );    
+}
+
+
+
+
+
+package R2M::JSON::Collection;
+use MIME::Base64 qw( encode_base64 );
+
+sub new {
+    require IO::Handle;
+
+    my($class) = shift;  
+    
+    # A hash is used as the "body" of the object:
+    my $this = {};
+    bless $this, $class;
+
+    my($basedir, $collname) = @_;
+
+    my $fname = $basedir . "/". $collname . ".json";
+
+    $this->{fname} = $fname;
+
+    open my $fh, ">", $fname or die "$fname: $!";
+
+    $this->{fh} = $fh;
+    $this->{cnt} = 0;
+
+    return $this;
+}
+
+
+sub insert {
+    my($this) = shift;      
+    my($doc) = @_;
+
+    #$this->{fh}->print("foo!");
+    walkMap($this->{fh}, $doc, 0);
+
+    $this->{fh}->print("\n");
+
+    $this->{cnt}++;
+}
+
+
+
+sub emit {
+    my($fh, $ov, $fld, $depth) = @_;
+
+    my $tx = ref($ov);
+
+    if(defined $fld) {
+	$fh->print("\"$fld\":");
+    }
+
+    if($tx eq "") {
+	if($ov =~ /^[+-]?\d+(\.\d+)?$/) {
+	    $fh->print("$ov");
+	} else {
+	    # Should be a "better" grooming here but...
+	    $ov =~ s/\"/\\\"/g;
+	    $fh->print("\"$ov\"");
+	}
+    } elsif($tx eq "HASH") {
+	walkMap($fh,$ov,$depth+1);
+    } elsif($tx eq "ARRAY") {
+	walkList($fh,$ov,$depth+1);
+
+    } elsif($tx eq "DateTime") {
+	$fh->print("{\"\$date\":\"${ov}.000Z\" }");
+
+    } elsif($tx eq "SCALAR") {
+	# Deref scalar and tell encode NOT to use \n (2nd arg is EOL char):
+	my $b64val = encode_base64($$ov, '');
+	$fh->print("{\"\$binary\":\"${b64val}\",\"\$type\":\"00\"}");
+    }
+}
+
+sub walkMap {
+    my($fh, $m, $depth) = @_;
+
+    my $ov = undef;
+
+    $fh->print("{");
+    for my $k (keys %{$m}) {
+	if(defined $ov) {
+	    $fh->print(",");
+	}
+	$ov = $m->{$k};
+	emit($fh, $ov, $k, $depth);
+    }
+    $fh->print("}");
+}
+
+sub walkList {
+    my($fh, $list, $depth) = @_;
+    my $len = @$list;
+
+    $fh->print("[");
+    for(my $jj = 0; $jj < $len; $jj++) {
+	if($jj > 0) {
+	    $fh->print(",");
+	}
+	my $ov = $list->[$jj];
+	emit($fh, $ov, undef, $depth); # undef means no fldname!
+    }    
+    $fh->print("]");
+}
+
+
+
+
+package R2M::JSON;
+
+# new R2M::JSON({basedir => "/tmp"})
+sub new {
+    my($class) = shift;  
+    
+    # A hash is used as the "body" of the object:
+    my $this = {};
+    bless $this, $class;
+
+    my $args = shift;
+
+    $this->{basedir} = $args->{basedir};
+
+    return $this;
+}
+
+
+# getColl(collName)
+sub getColl {
+    my($this) = shift;      
+    my($collName) = @_;
+    
+    my $collObj = new R2M::JSON::Collection($this->{basedir}, $collName);
+
+    #  Hang onto the fh for closing later....
+    $this->{files}->{$collName} = {
+	fh => $collObj->{fh},
+	fn => $collObj->{fname}
+    };
+
+    return $collObj;
+}
+
+sub close {
+    my($this) = shift;      
+
+    for $k (keys %{$this->{files}}) {
+	my $info = $this->{files}->{$k};
+
+	print "closing $info->{fn} ...\n";
+
+	my $fh = $info->{fh};
+
+	$fh->close();
+    }
+}
+
+
+
+
 
 
 1;
