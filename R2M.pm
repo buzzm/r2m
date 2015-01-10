@@ -5,6 +5,7 @@ package R2M;
 
 use DBI;
 use DateTime;
+use DateTime::Format::DBI;
 
 use Data::Dumper;  # for debugging
 
@@ -24,7 +25,7 @@ sub new {
 
 sub groom {
     my($this) = shift;      
-    my($stype, $rawval) = @_;
+    my($stype, $rawval, $dbdateparser) = @_;
 
 #    print "stype: $stype, rawval $rawval\n";
     # bail out fast...
@@ -35,89 +36,17 @@ sub groom {
     my $newval = $rawval;
 
 
-    if($stype == DBI::SQL_TYPE_DATE) {
-	#   YYYY-MM-DD
-	my ($year, $z, $month, $z, $day) = unpack("A4A1A2A1A2", $rawval);
+    if($stype == DBI::SQL_TYPE_DATE
+       || $stype == DBI::SQL_TIMESTAMP) {
 
-	$newval = DateTime->new(
-	    year      => $year,
-	    month     => $month,
-	    day       => $day,
-	    time_zone => $this->{UTZ} 
-	    );
+	$newval = $dbdateparser->parse_datetime($rawval);
 
+	# Add in the UTZ timezone!
+	$newval->set_time_zone($this->{UTZ});
 
     } elsif($stype == DBI::SQL_TYPE_TIMESTAMP_WITH_TIMEZONE) {
-	#   2015-01-09 11:16:10.676625-05
-	#
-	#  But:  This might be Postgres specific...
-	my ($year
-	    , $z
-	    , $month
-	    , $z
-	    , $day
-	    , $z
-	    , $hour
-	    , $z
-	    , $min
-	    , $z
-	    , $sec
-	    , $z
-	    , $Ms
-	    , $tz
-	    ) = unpack("A4A1A2A1A2A1A2A1A2A1A2A1A6A3", $rawval);
-	#               y   m   d   h   m   s   Mstz
-
-	#  Ms is microseconds; must multiply by 1000 to get nanos:
-	$Ms *= 1000;
-
-	#  tz is [+-]nn, e.g. -05
-	$tz .= "00";  # now it is -0500, which is valid.
-
-	$newval = DateTime->new(
-	    year      => $year,
-	    month     => $month,
-	    day       => $day,
-	    hour      => $hour,
-	    minute    => $min,
-	    second    => $sec,
-	    nanosecond=> $Ms,
-	    time_zone => $tz  # TBD  examine...
-	    );
-
-
-    } elsif($stype == DBI::SQL_TIMESTAMP) {
-	#   2015-01-09 11:15:39.619662
-	my ($year
-	    , $z
-	    , $month
-	    , $z
-	    , $day
-	    , $z
-	    , $hour
-	    , $z
-	    , $min
-	    , $z
-	    , $sec
-	    , $z
-	    , $Ms
-	    ) = unpack("A4A1A2A1A2A1A2A1A2A1A2A1A6", $rawval);
-	#               y   m   d   h   m   s   Ms
-
-	#  Ms is microseconds; must multiply by 1000 to get nanos:
-	$Ms *= 1000;
-	
-	$newval = DateTime->new(
-	    year      => $year,
-	    month     => $month,
-	    day       => $day,
-	    hour      => $hour,
-	    minute    => $min,
-	    second    => $sec,
-	    nanosecond=> $Ms,
-	    time_zone => $this->{UTZ}
-	    );
-
+	# Does not creating floating timezone issues so OK for MongoDB
+	$newval = $dbdateparser->parse_datetime($rawval);
 
     } elsif($stype == DBI::SQL_CHAR
 	) {
@@ -209,8 +138,6 @@ sub processCollection {
     #      becomes
     #          target1 => [ "fld", { src = ["SOURCE1"] } ]
     #
-    #  Step 2
-    #  For each 
     #  
     #  
 
@@ -337,9 +264,11 @@ sub processCollection {
 #    print $sql, "\n";
 
     my $dbname = $this->{spec}->{tables}->{$info->{tblsrc}}->{db};
+
     my $db = $this->{dbs}->{$dbname};
-    my $dbh = $db->{dbh};
-    my $dbalias = $db->{alias};
+    my $dbh          = $db->{dbh};
+    my $dbdateparser = $db->{dbdateparser};
+    my $dbalias      = $db->{alias};
 
 #    print "apply select to database $dbname ($dbalias)\n";
 
@@ -397,7 +326,7 @@ sub processCollection {
 		my $idx = $revmap->{$m->{srcs}->[0]};
 		my $xval = $row->[$idx];
 		my $stype = $stypes[$idx];
-		$mdb_val = $this->groom($stype, $xval);
+		$mdb_val = $this->groom($stype, $xval, $dbdateparser);
 	    }
 
 	    if(defined $mdb_val) {
@@ -505,12 +434,22 @@ sub run {
     for $k (keys %{$rdbs}) {
 	my $item = $rdbs->{$k};
 
-	$this->{dbs}->{$k}->{dbh} = DBI->connect(
+	my $dbh = DBI->connect(
 	    $item->{conn},
 	    $item->{user},
 	    $item->{pw},
 	    $item->{args});
+
+	$this->{dbs}->{$k}->{dbh} = $dbh;
+
+	if(defined $item->{dateparser}) {
+	    $this->{dbs}->{$k}->{dbdateparser} = $item->{dateparser};
+	} else {
+	    $this->{dbs}->{$k}->{dbdateparser} = DateTime::Format::DBI->new($dbh);
+	}
+
 	$this->{dbs}->{$k}->{alias} = $item->{alias};
+
 #	print "$item->{alias} connected as $k\n";
     }
 
@@ -708,16 +647,20 @@ sub emit {
     } elsif($tx eq "DateTime") {
 	#$fh->print("{\"\$date\":\"${ov}.000Z\" }");
 
-	print "ov->tx: ", $ov->time_zone(), "\n";
+	my $tzs = $ov->time_zone()->name();
+	if($tzs eq "UTC") {
+	    $tzs = "Z";
+	}
 
-	my $zz = sprintf("%04D-%02d-%02dT%02d:%02d:%02d.%03dZ",
+	my $zz = sprintf("%04D-%02d-%02dT%02d:%02d:%02d.%03d%s",
 			 $ov->year(),
 			 $ov->month(),
 			 $ov->day(),
 			 $ov->hour(),
 			 $ov->minute(),
 			 $ov->second(),
-			 $ov->millisecond()
+			 $ov->millisecond(),
+			 $tzs
 	    );
 
 	$fh->print("{\"\$date\":\"${zz}\" }");
@@ -828,7 +771,32 @@ R2M - DBD/DBI based relational to MongoDB bulk transfer framework
 
 =head1 SYNOPSIS
 
- (look at r2m.n.pl for guidance)
+ (look at r2m.n.pl for docs/guidance)
+
+Important:  The DBI framework fetches dates and datetimes as strings
+in the default output format of the source database, not
+real DateTime (or other) objects.  R2M depends on the
+DateTime::Format::DBI module to figure out the right DateTime::Format::XXX
+string-to-DateTime parser based on the relational databases to which you are
+connecting.
+If you are pointing at Postgres, for example. you'll need
+to have DateTime::Format::Pg installed because that is what 
+DateTime::Format::DBI will choose.  For Oracle, DateTime::Format::Oracle.
+This shouldn't be an issue because since R2M relies on the DBI ecosystem
+from the get-go, you likely will already have these very convenient and
+useful parsers installed.  See r2m.1.pl for custom dateparser setup.
+
+More on dates:  If using simple source-to-target spec, the types
+DBI::SQL_TYPE_DATE and DBI::SQL_TIMESTAMP do not carry timezone info.
+They will be assigned GMT (+0000) timezone.  DBI::SQL_TYPE_TIMESTAMP_WITH_TIMEZONE,
+however, has a timezone and will be set up as such in MongoDB.
+If you are using a custom transfer subroutine (see r2m.2.pl) then remember
+that the subroutine is passed the raw character string value; it becomes
+your responsibility to do whatever you need to convert it into a DateTime
+object that will be picked up as a real date by the MongoDB perl driver.
+Of course, if you really want to move a character string like "2014-03-03" into
+MongoDB as a string and not a real date, that's your choice.  But it's not 
+very useful that way.
 
 
 =head1 AUTHORS and MAINTAINERS

@@ -50,7 +50,7 @@ my $qq = {
     #    void close();
     #  The collObject in turn must support one method:  insert(hashRef)
     #
-        emitter => new R2M::MongoDB({
+        XXemitter => new R2M::MongoDB({
           host =>"localhost",
           port => 27017,
           db => "r2m"}),
@@ -58,13 +58,11 @@ my $qq = {
     #  We can "hide" the other emitter here by giving it a name that is
     #  not recognized by R2M.  Switch between this emitter (JSON) and
     #  and the MongoDB emitter for experimentation.
-	XXemitter => new R2M::JSON({ basedir =>"/tmp" }),
+	emitter => new R2M::JSON({ basedir =>"/tmp" }),
 
     rdbs => {
 	#  Each DB connection gets a handle name; D1 is just fine.
 	#  Create as many as needed.
-	#  Note: R2M does NOT join directly across DBs so have no fear;
-	#  put as many as needed here:
 	D1 => {
 	    #  Connect using DBI params!
 	    conn => "DBI:Pg:dbname=mydb;host=localhost",
@@ -74,6 +72,24 @@ my $qq = {
 
 	    #  For R2M debugging purposes; not used by DBI
 	    alias => "a nice PG DB"
+
+	   #  R2M uses DateTime::Format::DBI to determine which 
+	   #  DateTime::Format::xxx module to use to parse character
+	   #  strings into DateTime objects.  All the major
+	   #  RDBMS are supported.   Some DBD implementations may 
+	   #  not have such a parser; thus, you may have to supply
+	   #  your own.  If you do, the object must provide one method
+           #  parse_datetime() that takes a string (e.g. "2014-01-01 06:30AM")
+	   #  and returns a DateTime, e.g.
+           #    DateTime = $dbdateparser->parse_datetime($rawval);
+	   #
+	   #    my $customDateParser = new MyDateParser(args);
+	   #    ...
+	   #
+
+	   #  Our examples work against postgres so no need for a custom
+	   #  date parser.
+	   #    dateparser => $customerDateParser
 	}
     },
 
