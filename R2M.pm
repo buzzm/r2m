@@ -17,6 +17,8 @@ sub new {
 
     $this->{UTZ} = DateTime::TimeZone->new( name => '+0000' );
 
+    $this->{global} = {}; 
+
     bless $this, $class;
 
     return $this;
@@ -422,7 +424,6 @@ sub run {
     $this->{spec} = $spec; # ref the whole spec....
 
     $this->{startTime} = time;  # Ha!  Seconds since epoch (NOT millis)
-    $this->{global} = {}; 
 
 
     #  emitter!
