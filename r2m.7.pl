@@ -6,7 +6,7 @@ use Data::Dumper;
 my $qq = {
     # Swap emitter and XXemitter for different outputs:
     emitter => new R2M::JSON({ basedir => "/tmp" }),
-    XXemitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
+    #emitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
 
     rdbs => {
 	D1 => {
@@ -66,7 +66,7 @@ my $qq = {
 		    #      you can fetch the context with getContext().
 		    #
 		    #  All other fields in $ctx will go out of scope upon
-		    #  completion of the iteration through the table
+		    #  completion of the iteration through the table.
 		    #  
 		    #
 

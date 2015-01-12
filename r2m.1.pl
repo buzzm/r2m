@@ -50,15 +50,17 @@ my $qq = {
     #    void close();
     #  The collObject in turn must support one method:  insert(hashRef)
     #
-        XXemitter => new R2M::MongoDB({
+
+    #  Switch between this emitter (JSON) and
+    #  and the MongoDB emitter for experimentation.
+
+	# emitter => new R2M::JSON({ basedir =>"/tmp" }),
+
+       emitter => new R2M::MongoDB({
           host =>"localhost",
           port => 27017,
           db => "r2m"}),
 
-    #  We can "hide" the other emitter here by giving it a name that is
-    #  not recognized by R2M.  Switch between this emitter (JSON) and
-    #  and the MongoDB emitter for experimentation.
-	emitter => new R2M::JSON({ basedir =>"/tmp" }),
 
     rdbs => {
 	#  Each DB connection gets a handle name; D1 is just fine.
@@ -115,7 +117,7 @@ my $qq = {
 
 	# In the simplest use case, Each key in {flds} is a target field in the
 	# mongoDB collection, and the value names the column in the table named
-	# above in "src".
+	# above in "tblsrc".
 	# Target fields for mongoDB are (of course) CASE SENSITIVE.
 	# Case sensitivity for source fields for RDBMS is ... ambiguous.  Because
 	# so is SQL and individual RDBMS engine handling...

@@ -4,7 +4,7 @@ use Data::Dumper;
 my $qq = {
     # Swap emitter and XXemitter for different outputs:
     emitter => new R2M::JSON({ basedir => "/tmp" }),
-    XXemitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
+    #emitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
 
     rdbs => {
 	D1 => {
