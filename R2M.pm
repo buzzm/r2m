@@ -108,11 +108,13 @@ sub groom {
 
 
 
-#  processCcollection($isTop, $coll, $info, $where, $depth)
+#  processCollection($isTop, $coll, $info, $where, $depth, $linktype, $limit)
+#  $limit = 0 means let it run to max
+
 sub processCollection {
     my($this) = shift;      
 
-    my($isTop, $coll, $info, $where, $depth) = @_;
+    my($isTop, $coll, $info, $where, $depth, $linktype, $limit) = @_;
 
 
     my $flds = $info->{flds};
@@ -263,7 +265,8 @@ sub processCollection {
     if(defined $where) {
 	$sql .= " where $where";
     }
-#    print $sql, "\n";
+
+    print $sql, "\n";
 
     my $dbname = $this->{spec}->{tables}->{$info->{tblsrc}}->{db};
 
@@ -288,6 +291,8 @@ sub processCollection {
 	}
     };    
 
+
+    #  MAIN SELECT FETCH
     while(defined($row = $sth->fetchrow_arrayref())) {
 	my $doc = undef;
 
@@ -337,7 +342,10 @@ sub processCollection {
 	}
 
 
-	# Next, the links
+	#
+        # Next, the links.
+	# If no links, then this whole recursive subsection is BYPASSED
+	#
 	for my $k (keys %{$links}) {
 	    my $linkarr = $links->{$k};
 
@@ -345,6 +353,11 @@ sub processCollection {
 #	    print "linkarr len: ", $#$linkarr, "\n";
 
 	    my @subaccums = ();
+
+	    # Take the zeroeth join type.  When we go recursive,
+	    # the linkarr will be different, i.e. $linkarr->[0]->[0]->{type}
+	    # is a different thing...
+	    my $innerlinktype = $linkarr->[0]->[0]->{type};
 
 	    for(my $n = 0; $n < $#$linkarr + 1; $n++) {
 		my @partials = ();
@@ -356,33 +369,60 @@ sub processCollection {
 		my $idx = $revmap->{$link->[0]->{link}->[0]};
 		my $val = $row->[$idx];
 		
-		#  TBD TBD TBD
-		#  This neeeds examination.
-		my $subw = "$targ = \'$val\'";  # TBD!  Fix THIS!
+		#  Only something to do if the parent link actually
+		#  has a value:
+		if(defined $val) {
 
-		@partials = $this->processCollection(0, $coll, $link->[1], $subw, $depth + 1);	    
-		if($#partials != -1) {
+		    #  TBD TBD TBD
+		    #  This needs examination.
+		    #  Apparently, most dbengine are good are taking
+		    #  ANY inbound string and converting it to the right
+		    #  type; thus, it is not necessary to examine the
+		    #  target type and quote or not quote or otherwise futz with
+		    #  it.  
+		    #
+		    #  I tried this with strings (obviously), dates, and ints
+		    #  and it works against postgres.
+		    #
+		    my $subw = "$targ = \'$val\'";  # TBD!  Enhance THIS!
+
+		    my $innerlimit = 0;
+		    if($innerlinktype eq "1:1") {
+			$innerlimit = 1;
+		    }
+		 
+		    # Go recursive!
+		    @partials = $this->processCollection(0, $coll, $link->[1], $subw, $depth + 1, $innerlinktype, $innerlimit);	    
+		    
+		    if($#partials != -1) {
 #		    print "** collected " , $#partials + 1 , " from $subw\n";
-		    push(@subaccums, @partials);
+			push(@subaccums, @partials);
 #		    print "** new subaccums is " , $#subaccums + 1 , "\n";
-		} else {
+		    } else {
 #		    print "** collected NONE from $subw\n";
 #		    print "** accums is " , $#subaccums + 1, "\n";
+		    }
 		}
 	    }
 
 	    # Only set if >0
 	    if($#subaccums != -1) {
-		#my $lt = $link->[1]->{type};
-		#if($lt eq "1:n") {
-		#    $doc->{$k} = \@allAccums;
-		#} elsif($lt eq "1:1") {
-		#    $doc->{$k} = $allAccums[0]; # first and only doc!
-		#}
+
+		# This 1:1,n logic appears here and not outside the links
+		# loop because only links have this issue.  A "normal" pass
+		# over a table is SUPPOSED to produce 1:n.
+		if(!defined($innerlinktype) || $innerlinktype eq "1:n") {
+		    $doc->{$k} = \@subaccums;
+		} elsif($innerlinktype eq "1:1") {
+		    $doc->{$k} = $subaccums[0];
+		}
 #		print "setting " , $#subaccums + 1 , " items into $k\n";
-		$doc->{$k} = \@subaccums;
+
+# maybe undelete
+#		$doc->{$k} = \@subaccums;
 	    }
 	}
+
 
 	#  It is possible that given the params for column->field xfer, NO
 	#  non-null items were found and/or calcd by a sub.  In other words,
@@ -394,17 +434,30 @@ sub processCollection {
 	#
 	if(defined $doc) {
 	    if($isTop == 1) {
-		#print "insert into mongo\n";
 		my $id = $coll->insert($doc);
 		#print "inserted $id\n";
 		@accums = ();
 	    } else {
 		push(@accums, $doc);
 	    }
+
+	    # At this point we have done "something of value."
+	    # The reason we check for limit here and not in the normal place
+	    # which would be the end of the loop is because certain 1:1 
+	    # or $limit
+	    # processing conditions may not "accept" the first joined doc.
+	    # In this case, the logic must be allowed to proceed to the next
+	    # candidate.  In other words, 1:1 means take the first good subdoc
+	    # you find if you can.
+	    if($limit > 0 && $doccnt == $limit) {
+		break;
+	    }
+
 	} else {
 #	    print "NO flds found for xfer; skip\n";
 	}
-    }
+
+    } # END OF MAIN SELECT FETCH
 
     #print "end of proc accums: " ,  $#accums + 1 ,  "\n";
     return @accums;
@@ -494,7 +547,8 @@ sub run {
 
 	my $coll = $this->{emitter}->getColl($k);
 
-	$this->processCollection(1, $coll, $colls->{$k}, undef, 0);
+	# Kickstart with 1:n and limit=0 which means everything
+	$this->processCollection(1, $coll, $colls->{$k}, undef, 0, "1:n", 0);
     }
 
     #  Shut 'em down...

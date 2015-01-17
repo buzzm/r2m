@@ -34,24 +34,37 @@ my $qq = {
 	flds => {
 	    fname => "FNAME",
 	    lname => "LNAME",
+	    hd => "hiredate",
 	    blob => "BLOB",
 	    
 	    #  "join" is a powerful function that lets you embed documents
 	    #  from other tables.
 	    phones => [ "join", {
+		          # type is a string:
+		          # 1:n   (default) means joined docs will be placed
+		          #       in array.  If only one joined doc exists,
+		          #       the array will have one element.
+		          # 1:1   means only the first doc found will be 
+		          #       processed and placed in a map, NOT an array.
+		          #       All other
+		          #       matching docs will be ignored.  The order
+		          #       of the cursor material is source dependent.
+		          # 
 		          type => "1:n",
 
                           # item 0 is the column name in the parent
                           # item 1 is the column name in the child
 			  # For each row in the parent, the value of item 0
 			  # will be extracted and the child table queried
-			  # where item 1 = value.
+			  # where item 1 = value.  They just happen to have
+			  # the same name here.
 			  link => ["did", "did"]  
                       },
 			#  The second arg to join is the same construcion
 			#  as a regular spec with src and fields!  It is
 			#  processed recursively; thus, any field here 
-			#  can itself have a join!
+			#  can itself have a join to create an arbitrary
+			#  deep cascade!
 		      { tblsrc => "phones",
 			flds => {
 			    rings => "RINGS",
