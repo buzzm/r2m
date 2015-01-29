@@ -1,6 +1,82 @@
 #   See pod docs below __END__
 
 
+#
+#  Sigh.  After wrestling with DateTime::Format::Oracle and NLS_ env vars
+#  and not picking up microseconds properly, I am punting and just dropping
+#  in my own Oracle datetime parser.
+#  It assumes the setup code somewhere has called "alter session" to change
+#  the session nls_ formats to what is expected below.
+#
+package R2M::Oracle::DateParser;
+use DateTime;
+
+sub new {
+    my($class) = shift;  
+    my $this = {};
+    # It is good NOT to create this over and over again; expensive
+    $this->{UTZ} = DateTime::TimeZone->new( name => '+0000' );
+    bless $this, $class;
+    return $this;
+}
+
+sub parse_datetime {
+    my($this) = shift;      
+    my($inval) = @_;
+
+    my $newval = undef;
+
+    # nls_date_format => "YYYY-MM-DD",
+    # nls_timestamp_format => "YYYY-MM-DD HH24:MI:SS.FF6",
+    # nls_timestamp_tz_format => "YYYY-MM-DD HH24:MI:SS.FF6 TZHTZM"
+
+    my $len = length($inval);
+
+    # Defaults:    
+    my($Xyy, $Xmon, $Xdd, $Xhh, $Xmm, $Xss, $Xns, $Xtz) =
+      (  0,     0 ,   0 ,   0,    0 ,   0 ,   0,  $this->{UTZ});
+
+#    print "inval: [$inval] ($len)\n";
+
+    if($len == 10) { # 2015-01-01
+	my $ms = 0;
+	my($yy, $z, $mon, $z, $dd) = unpack("A4A1A2A1A2", $inval);
+	($Xyy, $Xmon, $Xdd) = ($yy, $mon, $dd);
+
+    } elsif($len == 26) { # 2015-01-01 18:15:39.619662
+	my($yy, $z, $mon, $z, $dd, $z, $hh, $z, $mm, $z, $ss, $z, $ms) = unpack("A4A1A2A1A2A1A2A1A2A1A2A1A6", $inval);
+
+	my $ns = $ms * 1000; # nanos, not micros!
+
+	($Xyy, $Xmon, $Xdd, $Xhh, $Xmm, $Xss, $Xns) =
+	    ($yy, $mon, $dd, $hh, $mm, $ss, $ns);
+
+    } elsif($len == 32) { # 2015-01-01 18:15:39.619662 -0500
+	my($yy, $z, $mon, $z, $dd, $z, $hh, $z, $mm, $z, $ss, $z, $ms, $z, $rawtz) = unpack("A4A1A2A1A2A1A2A1A2A1A2A1A6A1A5", $inval);
+
+	my $ns = $ms * 1000; # nanos, not micros!
+
+	($Xyy, $Xmon, $Xdd, $Xhh, $Xmm, $Xss, $Xns, $Xtz) =
+	 ($yy, $mon,  $dd,  $hh,  $mm,  $ss,  $ns,  $rawtz);
+    }
+    
+    $newval = DateTime->new(
+	    year      => $Xyy,
+	    month     => $Xmon,
+	    day       => $Xdd,
+	    hour      => $Xhh,
+	    minute    => $Xmm,
+	    second    => $Xss,
+	    nanosecond=> $Xns,
+	    time_zone => $Xtz
+	    );
+
+    return $newval;
+}
+
+
+
+
 package R2M;
 
 use DBI;
@@ -30,30 +106,41 @@ sub groom {
     my($stype, $rawval, $dbdateparser) = @_;
 
 #    print "stype: $stype, rawval $rawval\n";
-    # bail out fast...
+
+    # Bail out fast on empty data.  We will not store "".
     if(!defined $rawval || $rawval eq "") {
 	return undef;
     }
 
     my $newval = $rawval;
+    
+    # Most of the time, the type is DBI::SQL_VARCHAR which does not need
+    # to be groomed, so check for that first and potentially bail out:
+    if($stype == DBI::SQL_VARCHAR) {
+	return $newval;
+    }
 
+    # OK, slog through the others.
 
     if($stype == DBI::SQL_TYPE_DATE
-       || $stype == DBI::SQL_TIMESTAMP) {
+       || $stype == DBI::SQL_DATE
+       || $stype == DBI::SQL_TIMESTAMP
+       || $stype == DBI::SQL_TYPE_TIMESTAMP) {
 
 	$newval = $dbdateparser->parse_datetime($rawval);
-
+	
 	# Add in the UTZ timezone!
 	$newval->set_time_zone($this->{UTZ});
 
     } elsif($stype == DBI::SQL_TYPE_TIMESTAMP_WITH_TIMEZONE) {
+
 	# Does not creating floating timezone issues so OK for MongoDB
 	$newval = $dbdateparser->parse_datetime($rawval);
 
     } elsif($stype == DBI::SQL_CHAR
 	) {
 
-	#  Kill trailing whitespace; not important in mongoDB
+	#  Kill trailing whitespace; not important in mongoDB.
 	$newval =~ s/\s+$//;
 
     } elsif($stype == DBI::SQL_TINYINT
@@ -100,6 +187,8 @@ sub groom {
 	    || $stype == DBI::SQL_BINARY
 	) {
 
+	# See the MongoDB perl driver docs for more detail on how
+	# a scalar ref makes the driver store type blob instead of string.
 	$newval = \$rawval;
     }
 
@@ -251,7 +340,7 @@ sub processCollection {
     my @stypes = ();
     for my $k (@select) {
 	my $nk = uc($k);
-	my $v = $this->{spec}->{tables}->{$info->{tblsrc}}->{coldefs}->{$nk}->{"DATA_TYPE"};
+	my $v = $this->{spec}->{tables}->{$info->{tblsrc}}->{coldefs}->{$nk}->{"R2M_NORM_DATA_TYPE"};
 #	print "$k is type $v\n";
 	push(@stypes, $v);
     }
@@ -265,8 +354,7 @@ sub processCollection {
     if(defined $where) {
 	$sql .= " where $where";
     }
-
-    print $sql, "\n";
+#    print $sql, "\n";
 
     my $dbname = $this->{spec}->{tables}->{$info->{tblsrc}}->{db};
 
@@ -375,14 +463,14 @@ sub processCollection {
 
 		    #  TBD TBD TBD
 		    #  This needs examination.
-		    #  Apparently, most dbengine are good are taking
+		    #  Apparently, most dbengines are good are taking
 		    #  ANY inbound string and converting it to the right
 		    #  type; thus, it is not necessary to examine the
 		    #  target type and quote or not quote or otherwise futz with
 		    #  it.  
 		    #
 		    #  I tried this with strings (obviously), dates, and ints
-		    #  and it works against postgres.
+		    #  and it works against postgres and Oracle so...
 		    #
 		    my $subw = "$targ = \'$val\'";  # TBD!  Enhance THIS!
 
@@ -496,14 +584,55 @@ sub run {
 
 	$this->{dbs}->{$k}->{dbh} = $dbh;
 
+	# Oooo!
+	$this->{dbs}->{$k}->{dbtype} = "UNKNOWN";
+	my @dbtypes = eval { DBI::_dbtype_names($dbh,0) };
+	if($#dbtypes == 0) {  # should only be one....?
+	    $this->{dbs}->{$k}->{dbtype} = uc($dbtypes[0]); # uc() just in case...
+	}
+
+
 	if(defined $item->{dateparser}) {
 	    $this->{dbs}->{$k}->{dbdateparser} = $item->{dateparser};
 	} else {
-	    $this->{dbs}->{$k}->{dbdateparser} = DateTime::Format::DBI->new($dbh);
+	    # 
+	    #  AAAAAAAAUUUUUUUUUUGH
+	    #  The Date handling setup is soooo brittle with Oracle that
+	    #  it is best if we hardcode our own environment and force dates
+	    #  and times to be in a very specific, controlled env...
+	    #
+	    if($this->{dbs}->{$k}->{dbtype} eq "ORACLE") {
+		#  Fortunately, this setup on Oracle has NO compile/runtime
+		#  dependency (thank goodness), i.e. if you're using postgres
+		#  have no clientside Oracle anything, 
+		# 
+		#  Note: We keep dashes and stuff in the format just to make
+		#  sure that 2015-01-01 remains a string and not 20150101 which
+		#  could be an int and likely make things weird later...
+		#
+		my $fmtFuncs = {
+		    nls_date_format => "YYYY-MM-DD",
+		    nls_timestamp_format => "YYYY-MM-DD HH24:MI:SS.FF6",
+		    nls_timestamp_tz_format => "YYYY-MM-DD HH24:MI:SS.FF6 TZHTZM"
+		};
+		for my $k (keys %{$fmtFuncs}) {
+		    my $sql =  "alter session set $k = '"
+			. $fmtFuncs->{$k}
+		    . "'";
+		    
+		    $dbh->do($sql);
+		}
+
+		$this->{dbs}->{$k}->{dbdateparser} = new R2M::Oracle::DateParser();
+
+	    } else { # Not Oracle; go for DBI...
+		$this->{dbs}->{$k}->{dbdateparser} = DateTime::Format::DBI->new($dbh);
+	    }
 	}
 
 	$this->{dbs}->{$k}->{alias} = $item->{alias};
 
+	doSpecialDBhandling($dbh);
 #	print "$item->{alias} connected as $k\n";
     }
 
@@ -521,24 +650,83 @@ sub run {
 	my $db  = $item->{db};
 	my $dbh = $this->{dbs}->{$item->{db}}->{dbh};
 
-	my $sth = $dbh->column_info( undef, undef, $item->{table}, undef );
-
+	
+	# Internal Metadata
+	# Welcome to the land of common interfaces but with varying
+	# (implementation dependent) hashrefs that come back AND
+	# differing values in those hashrefs.   Sigh...
+	#
 	# The internal metadata tends to be case wobbly.  It is unclear
 	# if the name you use to create a column (like camelCase) is 
 	# saved as camelcase or CAMELCASE or camelCase.
-	# So....
-	# Walk the map, for each key ucase it, and point that key to 
-	# the content of the original.  In a sense, two keys to the same
-	# data...
-	$item->{coldefs} = $sth->fetchall_hashref("COLUMN_NAME");
+	# This applies to columns and tables.
+	# SQL is more case-forgiving.
+	# 
+	# To start, use column_info() on that table name supplied in
+	# the spec.  It is very possible that the case wobblies
+	# will impact us.   For example, postgres is strict case sensitive
+	# but Oracle uppercases the table names in metadata.
+	# So...
+	# If at first you don't get the table, try again with uppercase...
+	#
+
+	my $sth = $dbh->column_info( undef, undef, $item->{table}, undef );
+	my $defs = $sth->fetchall_hashref("COLUMN_NAME");
+
+	my $ndefs = scalar keys %{$defs};
+	if($ndefs == 0) {
+	    # Try uppercase...
+	    my $uctbl = uc($item->{table});
+#	    print "retrying with table $uctbl\n";
+	    $sth = $dbh->column_info( undef, undef, $uctbl, undef );
+	    $defs = $sth->fetchall_hashref("COLUMN_NAME");
+	}
+
+	# One way or another, we now have coldefs...
+	$item->{coldefs} = $defs;
+
+	# Fixup those defs...
 	for my $k (keys %{$item->{coldefs}}) {
 	    my $v = $item->{coldefs}->{$k};
+
+	    # While we're here:
+	    # DBD::Postgres does not populate SQL_DATA_TYPE; it only 
+	    # populates DATA_TYPE.  DBD::Oracle populates DATA_TYPE and
+	    # SQL_DATA_TYPE consistently, but if SQL_DATA_TYPE is undef
+	    # (like for timestamp WITH timezone) then DATA_TYPE will carry
+	    # the code -- except when THAT is also null, fall back to 
+	    # TYPE_NAME and brute force it.
+	    # This is so weird that it's best to create our own field called
+	    # R2M_NORM_DATA_TYPE which is still in the domain of the DBI::
+	    # codes but represents the best thing...
+	    #
+	    my $stype = $v->{SQL_DATA_TYPE};
+	    if(!defined $stype) {
+		$stype = $v->{DATA_TYPE};
+	    }
+	    if(!defined $stype) {
+		if($v->{TYPE_NAME} eq "BINARY_DOUBLE") {
+		    $stype = DBI::SQL_DOUBLE;
+		}
+	    }
+	    if(!defined $stype) {
+		# Fall back to string and hope...
+		$stype = DBI::SQL_VARCHAR;
+	    }
+
+	    $v->{R2M_NORM_DATA_TYPE} = $stype;
+
+	    # And now the second hack.  
+	    # Ucase the key and point that key to the content of the original.
+	    # It's easier to do this than worry about what calls into the
+	    # engine catalog are case-sensitive
 	    my $nk = uc($k);
 	    $item->{coldefs}->{$nk} = $v;
-	    #delete $item->{coldefs}->{$k};
+
+#	    print Dumper($v);
 	}
-	#print "$item->{table} schema captured\n";
-	#print Dumper( $item->{coldefs} );
+#	print "$item->{table} schema captured\n";
+#	print Dumper( $item->{coldefs} );
     }
 
     # load 'em up!
@@ -565,7 +753,46 @@ sub run {
 }
 
 
+#
+#  Initially, this was done for Oracle.  
+#  Probably should NOT have this buried in R2M but Oracle is SOOOOO
+#  prevalent that it's just better to set it up here.   
+#  
+sub doSpecialDBhandling {
+    my($dbh) = @_;
 
+    #  Yikes...
+    my @dbtypes = eval { DBI::_dbtype_names($dbh,0) };
+
+    if($#dbtypes == 0) {  # should only be one....?
+
+	my $dbt = $dbtypes[0];
+
+	if(uc($dbt) eq "ORACLE") {
+	    #  Fortunately, this setup on Oracle has NO compile/runtime
+	    #  dependency (thank goodness). 
+	    # 
+	    #  Note: We keep dashes and stuff in the format just to make
+	    #  sure that 2015-01-01 remains a string and not 20150101 which
+	    #  could be an int and likely make things weird later...
+	    #
+	    my $fmtFuncs = {
+		nls_date_format => "YYYY-MM-DD",
+		nls_timestamp_format => "YYYY-MM-DD HH24:MI:SS.FF6",
+		nls_timestamp_tz_format => "YYYY-MM-DD HH24:MI:SS.FF6 TZHTZM"
+	    };
+	    for my $k (keys %{$fmtFuncs}) {
+		my $sql =  "alter session set $k = '"
+		    . $fmtFuncs->{$k}
+		. "'";
+
+		#print "sql: $sql\n";
+
+		$dbh->do($sql);
+	    }
+	}	    
+    }
+}
 
 
 
@@ -702,8 +929,16 @@ sub emit {
     } elsif($tx eq "DateTime") {
 	#$fh->print("{\"\$date\":\"${ov}.000Z\" }");
 
-	my $tzs = $ov->time_zone()->name();
-	if($tzs eq "UTC") {
+	my $tzo = $ov->time_zone();
+
+	my $tzs = $tzo->name(); # go for a default
+
+	#
+	#  Mongo DB does not store floating timezones; it gets 
+	#  pegged to Z, so we must make BOTH the UTC and any kind
+	#  of floating time a Z!
+	#
+	if($tzo->is_floating || $tzo->is_utc) {
 	    $tzs = "Z";
 	}
 

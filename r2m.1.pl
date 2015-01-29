@@ -54,12 +54,12 @@ my $qq = {
     #  Switch between this emitter (JSON) and
     #  and the MongoDB emitter for experimentation.
 
-	# emitter => new R2M::JSON({ basedir =>"/tmp" }),
+	 emitter => new R2M::JSON({ basedir =>"/tmp" }),
 
-       emitter => new R2M::MongoDB({
-          host =>"localhost",
-          port => 27017,
-          db => "r2m"}),
+       #emitter => new R2M::MongoDB({
+       #   host =>"localhost",
+       #   port => 27017,
+       #   db => "r2m"}),
 
 
     rdbs => {

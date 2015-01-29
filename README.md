@@ -23,4 +23,4 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 Disclaimer
 ----------
 
-This software is not supported by MongoDB, Inc. under any of their commercial support subscriptions or otherwise. Any usage of Firehose is at your own risk. Bug reports, feature requests and questions can be posted in the Issues section here on github.
+This software is not supported by MongoDB, Inc. under any of their commercial support subscriptions or otherwise. Any usage of R2M is at your own risk. Bug reports, feature requests and questions can be posted in the Issues section here on github.
