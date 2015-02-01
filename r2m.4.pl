@@ -35,7 +35,7 @@ my $qq = {
 	    fname => "FNAME",
 	    lname => "LNAME",
 	    hd => "hiredate",
-	    blob => "BLOB",
+	    did => "DID",
 	    
 	    #  "join" is a powerful function that lets you embed documents
 	    #  from other tables.
@@ -70,7 +70,7 @@ my $qq = {
 			    rings => "RINGS",
 			    type => "TYPE",
 			    number => [ "fld", {
-				colsrc => "NUMBER",
+				colsrc => "NUM",
 				f => sub {
 				    my($ctx,$val) = @_;
 				    $val =~ s/^1-/+1 /;

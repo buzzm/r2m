@@ -2,12 +2,15 @@ use R2M;
 
 my $qq = {
     # Swap emitter and XXemitter for different outputs:
-    #emitter => new R2M::JSON({ basedir => "/tmp" }),
-    emitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
+    emitter => new R2M::JSON({ basedir => "/tmp" }),
+
+    #emitter => new R2M::MongoDB({ db=>"r2m", host =>"localhost", port => 27017}),
 
     rdbs => {
 	D1 => {
-	    conn => "DBI:Pg:dbname=mydb;host=localhost",
+	    # application_name/PID is not required but is helpful because it
+	    # shows up in SELECT * FROM pg_stat_activity
+	    conn => "DBI:Pg:dbname=mydb;host=localhost;application_name=r2m/$$",
 	    alias => "a nice PG DB",
 	    user => "postgres",
 	    pw => "postgres",
@@ -32,7 +35,7 @@ my $qq = {
       contacts => {
 	tblsrc => "CTC",
 	flds => {
-	    fname => "FNAME",
+	    lname => "LNAME",
 	    
 	    #  "multijoin" allows you to place 2 or more sets of data
 	    #  from sources joins into a single array field in mongoDB.
@@ -58,13 +61,13 @@ my $qq = {
 				flds => {
 				    origin => [ "fld", { val => "phones" } ],
 				    data => [ "fld", {
-					colsrc => ["TYPE", "RINGS", "NUMBER"],
+					colsrc => ["TYPE", "RINGS", "NUM"],
 					f => sub {
 					    my($ctx, $vals) = @_;
 					    return {
 						type => $vals->{"TYPE"},
 						rings => $vals->{"RINGS"},
-						number => $vals->{"NUMBER"}
+						number => $vals->{"NUM"}
 					    };
 					}
 					      }]

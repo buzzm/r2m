@@ -576,11 +576,17 @@ sub run {
     for $k (keys %{$rdbs}) {
 	my $item = $rdbs->{$k};
 
-	my $dbh = DBI->connect(
-	    $item->{conn},
-	    $item->{user},
-	    $item->{pw},
-	    $item->{args});
+	my $dbh = undef;
+
+	if(defined $item->{dbh}) {
+	    $dbh = $item->{dbh};
+	} else {
+	    $dbh = DBI->connect(
+		$item->{conn},
+		$item->{user},
+		$item->{pw},
+		$item->{args});
+	}
 
 	$this->{dbs}->{$k}->{dbh} = $dbh;
 

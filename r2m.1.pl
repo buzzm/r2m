@@ -66,14 +66,29 @@ my $qq = {
 	#  Each DB connection gets a handle name; D1 is just fine.
 	#  Create as many as needed.
 	D1 => {
-	    #  Connect using DBI params!
-	    conn => "DBI:Pg:dbname=mydb;host=localhost",
+	    # Connect using DBI params!
+	    # 
+	    # application_name/PID is not required but is helpful because it
+	    # shows up in SELECT * FROM pg_stat_activity
+	    conn => "DBI:Pg:dbname=mydb;host=localhost;application_name=r2m/$$",
 	    user => "postgres",
 	    pw => "postgres",
 	    args => { AutoCommit => 0 },
 
 	    #  For R2M debugging purposes; not used by DBI
 	    alias => "a nice PG DB"
+
+	    #  If you have some very special RDBMS connection issues, then
+	    #  bypass conn/user/pw/argss and just create a DB handle yourself:
+	    #      $dbh = DBI->connect(connectionString, user, pw, args)
+	    #      ...
+	    #      D1 => {
+	    #        dbh => $dbh
+	    #      }
+	    #  
+	    #  If dbh is present in the spec, then conn/user/pw/args will 
+	    #  be ignored.   
+            #
 
 	   #  R2M uses DateTime::Format::DBI to determine which 
 	   #  DateTime::Format::xxx module to use to parse character
@@ -87,7 +102,23 @@ my $qq = {
 	   #
 	   #    my $customDateParser = new MyDateParser(args);
 	   #    ...
+	   #  
+	   #  OK -- THAT SAID:
+	   #  The combination of 
+	   #  1) Oracle DateTime::Format::Oracle module NLS_ configs
+           #  2) Local environment variable configs
+	   #  3) Microsecond vs. nanosecond in perl DateTime
+	   #  4) Date vs. DateTime parsers
+	   #  has made Oracle->perl->MongoDB handling so engaging that built
+	   #  into R2M is a custom datetime parser.  
 	   #
+           #  READ THIS CAREFULLY:
+	   #  If R2M detects that
+	   #  Oracle is a source DB, it will issue "alter session set nls_..."
+	   #  to ensure that the datetime string equivalents vended back into
+	   #  into R2M via the DBI string-based interface are clear and precise
+	   #  and predictable so the custom 
+	   #  parser can easily grok date, datetime, and datetime+timezone.
 
 	   #  Our examples work against postgres so no need for a custom
 	   #  date parser.
