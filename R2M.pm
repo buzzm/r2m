@@ -557,6 +557,8 @@ sub getContext {
     return $this->{global};
 }
 
+
+
 sub run {
     my($this) = shift;      
     my($spec) = shift;
@@ -589,56 +591,19 @@ sub run {
 	}
 
 	$this->{dbs}->{$k}->{dbh} = $dbh;
-
-	# Oooo!
-	$this->{dbs}->{$k}->{dbtype} = "UNKNOWN";
-	my @dbtypes = eval { DBI::_dbtype_names($dbh,0) };
-	if($#dbtypes == 0) {  # should only be one....?
-	    $this->{dbs}->{$k}->{dbtype} = uc($dbtypes[0]); # uc() just in case...
-	}
-
+	$this->{dbs}->{$k}->{alias} = $item->{alias};
 
 	if(defined $item->{dateparser}) {
 	    $this->{dbs}->{$k}->{dbdateparser} = $item->{dateparser};
-	} else {
-	    # 
-	    #  AAAAAAAAUUUUUUUUUUGH
-	    #  The Date handling setup is soooo brittle with Oracle that
-	    #  it is best if we hardcode our own environment and force dates
-	    #  and times to be in a very specific, controlled env...
-	    #
-	    if($this->{dbs}->{$k}->{dbtype} eq "ORACLE") {
-		#  Fortunately, this setup on Oracle has NO compile/runtime
-		#  dependency (thank goodness), i.e. if you're using postgres
-		#  have no clientside Oracle anything, 
-		# 
-		#  Note: We keep dashes and stuff in the format just to make
-		#  sure that 2015-01-01 remains a string and not 20150101 which
-		#  could be an int and likely make things weird later...
-		#
-		my $fmtFuncs = {
-		    nls_date_format => "YYYY-MM-DD",
-		    nls_timestamp_format => "YYYY-MM-DD HH24:MI:SS.FF6",
-		    nls_timestamp_tz_format => "YYYY-MM-DD HH24:MI:SS.FF6 TZHTZM"
-		};
-		for my $k (keys %{$fmtFuncs}) {
-		    my $sql =  "alter session set $k = '"
-			. $fmtFuncs->{$k}
-		    . "'";
-		    
-		    $dbh->do($sql);
-		}
-
-		$this->{dbs}->{$k}->{dbdateparser} = new R2M::Oracle::DateParser();
-
-	    } else { # Not Oracle; go for DBI...
-		$this->{dbs}->{$k}->{dbdateparser} = DateTime::Format::DBI->new($dbh);
-	    }
 	}
 
-	$this->{dbs}->{$k}->{alias} = $item->{alias};
+	#  Sigh.
+	#  Welcome to the land of common interfaces but with varying
+	#  implementations.  It turns out that DateTime::Format::DBI
+	#  only hits 80% of the major imps and gets Oracle wrong in
+	#  most cases due to env vars and such.   Sigh...
+	$this->doSpecialDBDProcessing($this->{dbs}->{$k});
 
-	doSpecialDBhandling($dbh);
 #	print "$item->{alias} connected as $k\n";
     }
 
@@ -653,14 +618,18 @@ sub run {
 	    $item->{table} = $k; # take name of key
 	}
 
-	my $db  = $item->{db};
-	my $dbh = $this->{dbs}->{$item->{db}}->{dbh};
+	my $dbname  = $item->{db};
+	my $dbtype = $this->{dbs}->{$dbname}->{dbtype};
+	my $dbh = $this->{dbs}->{$dbname}->{dbh};
 
 	
 	# Internal Metadata
-	# Welcome to the land of common interfaces but with varying
+	# Welcome (again!) to the land of common interfaces but with varying
 	# (implementation dependent) hashrefs that come back AND
 	# differing values in those hashrefs.   Sigh...
+	#
+	# First off, not all DBDs support the column_info() method.
+	# Sigh.
 	#
 	# The internal metadata tends to be case wobbly.  It is unclear
 	# if the name you use to create a column (like camelCase) is 
@@ -675,9 +644,33 @@ sub run {
 	# So...
 	# If at first you don't get the table, try again with uppercase...
 	#
+	# If $defs are defined, then just use them.
+	#
+	# But: if column_info isn't defined AND there are no defs, then
+	# you're pretty much out of luck
+	#
+	my $defs = undef;
+	my $sth = undef;
 
-	my $sth = $dbh->column_info( undef, undef, $item->{table}, undef );
-	my $defs = $sth->fetchall_hashref("COLUMN_NAME");
+	if(defined $item->{columnSpecs}) {
+	    $defs = {};
+	    for $k (keys %{$item->{columnSpecs}}) {
+		my $stype =  $item->{columnSpecs}->{$k};
+		$defs->{$k}->{SQL_DATA_TYPE} = $stype;
+	    }
+
+	} else { # no column specs; dig into the imp
+	    $sth = $dbh->column_info( undef, undef, $item->{table}, undef );
+	    if(defined $sth) {
+		$defs = $sth->fetchall_hashref("COLUMN_NAME");
+	    }
+	}
+
+	if(!defined $defs) {
+	    die("fatal: cannot determine any kind of column definition for source \"$dbname\", type $dbtype ; consider setting the columnSpecs field");
+	}
+
+	# defs
 
 	my $ndefs = scalar keys %{$defs};
 	if($ndefs == 0) {
@@ -687,6 +680,8 @@ sub run {
 	    $sth = $dbh->column_info( undef, undef, $uctbl, undef );
 	    $defs = $sth->fetchall_hashref("COLUMN_NAME");
 	}
+
+#	print "defs: ", Dumper($defs);
 
 	# One way or another, we now have coldefs...
 	$item->{coldefs} = $defs;
@@ -759,24 +754,37 @@ sub run {
 }
 
 
-#
-#  Initially, this was done for Oracle.  
-#  Probably should NOT have this buried in R2M but Oracle is SOOOOO
-#  prevalent that it's just better to set it up here.   
-#  
-sub doSpecialDBhandling {
-    my($dbh) = @_;
+sub doSpecialDBDProcessing {
+    my($this) = shift;      
+    my($dbinfo) = shift;   # $this->{dbs}->{$k}
 
-    #  Yikes...
+    my $dbh = $dbinfo->{dbh};
+
+
+    $dbinfo->{dbtype} = "UNKNOWN";
+
+    # Oooo!   Peeking under the covers...
     my @dbtypes = eval { DBI::_dbtype_names($dbh,0) };
-
     if($#dbtypes == 0) {  # should only be one....?
+	$dbinfo->{dbtype} = uc($dbtypes[0]); # uc() just in case...
+    }
 
-	my $dbt = $dbtypes[0];
+    # If they defined their own Date parser, then great.
+    # Else, here we go....
+    if(!defined $dbinfo->{dbdateparser}) {   # if NOT defined
 
-	if(uc($dbt) eq "ORACLE") {
+	my $pclass = DateTime::Format::DBI->_get_parser(@dbtypes);
+
+	# 
+	#  AAAAAAAAUUUUUUUUUUGH
+	#  The Date handling setup is soooo brittle with Oracle that
+	#  it is best if we hardcode our own environment and force dates
+	#  and times to be in a very specific, controlled env...
+	#
+	if($dbinfo->{dbtype} eq "ORACLE") {
 	    #  Fortunately, this setup on Oracle has NO compile/runtime
-	    #  dependency (thank goodness). 
+	    #  dependency (thank goodness), i.e. if you're using postgres
+	    #  have no clientside Oracle anything, 
 	    # 
 	    #  Note: We keep dashes and stuff in the format just to make
 	    #  sure that 2015-01-01 remains a string and not 20150101 which
@@ -791,14 +799,21 @@ sub doSpecialDBhandling {
 		my $sql =  "alter session set $k = '"
 		    . $fmtFuncs->{$k}
 		. "'";
-
-		#print "sql: $sql\n";
-
+		
 		$dbh->do($sql);
 	    }
-	}	    
+	    
+	    $dbinfo->{dbdateparser} = new R2M::Oracle::DateParser();
+	    
+	} elsif(defined $pclass) {
+	    $dbinfo->{dbdateparser} = DateTime::Format::DBI->new($dbh);
+
+	} else {  # Cannot find suitable one?  Go for Oracle format!
+	    $dbinfo->{dbdateparser} = new R2M::Oracle::DateParser();
+	}
     }
 }
+
 
 
 
